@@ -10,6 +10,10 @@ from tqdm import tqdm
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
+import logging
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -17,20 +21,29 @@ load_dotenv()
 class WebScraper:
     def __init__(self, openai_api_key: str = None, delay: float = 2.0):
         """Initialize the scraper with configurable delay between requests."""
+        logger.info("Initializing WebScraper")
         self.delay = delay
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
         # Initialize OpenAI client
-        if openai_api_key:
-            self.openai_client = OpenAI(api_key=openai_api_key)
-        else:
-            api_key = os.getenv('OPENAI_API_KEY')
-            if not api_key:
-                raise ValueError("OPENAI_API_KEY environment variable is not set")
-            self.openai_client = OpenAI(api_key=api_key)
-            
+        try:
+            if openai_api_key:
+                logger.debug("Using provided OpenAI API key")
+                self.openai_client = OpenAI(api_key=openai_api_key)
+            else:
+                logger.debug("Getting OpenAI API key from environment")
+                api_key = os.getenv('OPENAI_API_KEY')
+                if not api_key:
+                    logger.error("OpenAI API key not found in environment")
+                    raise ValueError("OPENAI_API_KEY environment variable is not set")
+                self.openai_client = OpenAI(api_key=api_key)
+            logger.info("OpenAI client initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing OpenAI client: {str(e)}")
+            raise
+
         # Reset any proxy settings that might be in the environment
         os.environ.pop('OPENAI_PROXY', None)
         os.environ.pop('OPENAI_HTTP_PROXY', None)
@@ -242,10 +255,15 @@ class WebScraper:
     def generate_outreach_email(self, business_name: str, company_name: str, backlink_url: str) -> str:
         """Generate an outreach email using OpenAI API."""
         try:
+            logger.info(f"Generating outreach email for business: {business_name}")
+            logger.debug(f"Parameters - Company: {company_name}, Backlink: {backlink_url}")
+
             if not business_name or not company_name or not backlink_url:
+                logger.error("Missing required parameters")
                 raise ValueError("Missing required parameters for email generation")
 
             if not self.openai_client:
+                logger.error("OpenAI client not initialized")
                 raise ValueError("OpenAI client is not initialized")
 
             prompt = f"""
@@ -257,35 +275,48 @@ class WebScraper:
             4. Keep it concise and natural
             5. End with a clear call to action
             """
+            logger.debug(f"Generated prompt: {prompt}")
 
-            # Create completion without proxy settings
-            response = self.openai_client.Completion.create(
-                model="gpt-3.5-turbo",
-                prompt=prompt,
-                max_tokens=300,
-                temperature=0.7
-            )
+            logger.info("Making API call to OpenAI")
+            try:
+                response = self.openai_client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are a professional outreach specialist writing an email to request a backlink."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=300,
+                    temperature=0.7
+                )
+                logger.debug(f"OpenAI API response: {response}")
+            except Exception as e:
+                logger.error(f"OpenAI API call failed: {str(e)}")
+                raise
 
-            if not response.choices or not response.choices[0].text:
+            if not response.choices or not response.choices[0].message:
+                logger.error("No valid response from OpenAI")
                 raise ValueError("No response from OpenAI API")
 
-            return response.choices[0].text.strip()
+            email_content = response.choices[0].message.content.strip()
+            logger.info("Successfully generated email")
+            logger.debug(f"Generated email content: {email_content}")
+            return email_content
 
         except Exception as e:
             error_type = type(e).__name__
             error_msg = str(e)
             
             if error_type == 'AuthenticationError':
-                print(f"OpenAI Authentication Error: {error_msg}")
+                logger.error(f"OpenAI Authentication Error: {error_msg}")
                 return "Error: OpenAI API key is invalid"
             elif error_type == 'APIError':
-                print(f"OpenAI API Error: {error_msg}")
+                logger.error(f"OpenAI API Error: {error_msg}")
                 return "Error: OpenAI API is currently unavailable"
             elif error_type == 'ValueError':
-                print(f"Value Error: {error_msg}")
+                logger.error(f"Value Error: {error_msg}")
                 return f"Error: {error_msg}"
             else:
-                print(f"Unexpected error generating email: {error_type} - {error_msg}")
+                logger.error(f"Unexpected error: {error_type} - {error_msg}")
                 return "Error: An unexpected error occurred while generating the email"
 
 def main():

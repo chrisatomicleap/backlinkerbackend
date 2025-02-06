@@ -10,14 +10,19 @@ import traceback
 import logging
 from web_scraper import WebScraper
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging with more detail
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
+logger.info("Environment variables loaded")
 
 app = Flask(__name__)
+logger.info("Flask app initialized")
 
 # Configure CORS
 CORS(app, resources={
@@ -27,6 +32,7 @@ CORS(app, resources={
         "allow_headers": ["Content-Type"]
     }
 })
+logger.info("CORS configured")
 
 @app.after_request
 def after_request(response):
@@ -35,123 +41,114 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     return response
 
-# Initialize WebScraper with OpenAI API key from environment
-openai_api_key = os.getenv('OPENAI_API_KEY')
-if not openai_api_key:
-    raise ValueError("OPENAI_API_KEY environment variable is required")
-
-scraper = WebScraper(openai_api_key)
-
 @app.route('/health', methods=['GET'])
 def health_check():
+    logger.debug("Health check endpoint called")
     return jsonify({"status": "healthy"}), 200
 
 def scrape_single_url(scraper, url, company_name, backlink_url):
     """Scrape a single URL with timeout handling."""
     try:
-        print(f"Starting to scrape URL: {url}")
+        logger.info(f"Starting to scrape URL: {url}")
         result = scraper.scrape_url(url)
-        if result:
-            print(f"Successfully scraped URL: {url}")
-            print(f"Scraping result: {json.dumps(result, indent=2)}")
-            
-            if 'error' not in result:
-                print(f"Generating outreach email for {result.get('business_name', '')}")
-                result['outreach_email'] = scraper.generate_outreach_email(
-                    business_name=result.get('business_name', ''),
-                    company_name=company_name,
-                    backlink_url=backlink_url
-                )
-                print(f"Email generated successfully for {url}")
-            return result
-        else:
-            print(f"No result returned for URL: {url}")
-            return {
-                'url': url,
-                'error': 'No data could be extracted',
-                'business_name': url.replace('www.', '').split('/')[0]
-            }
+        
+        # Add URL to result
+        result['url'] = url
+        logger.debug(f"Scraping result for {url}: {json.dumps(result, indent=2)}")
+        
+        # Generate outreach email
+        try:
+            logger.info(f"Generating outreach email for URL: {url}")
+            result['outreach_email'] = scraper.generate_outreach_email(
+                business_name=result.get('business_name', ''),
+                company_name=company_name,
+                backlink_url=backlink_url
+            )
+            logger.info(f"Generated outreach email for URL: {url}")
+            logger.debug(f"Email content: {result['outreach_email']}")
+        except Exception as e:
+            logger.error(f"Error generating outreach email for {url}: {str(e)}")
+            logger.error(traceback.format_exc())
+            result['outreach_email'] = f"Error generating email: {str(e)}"
+        
+        return result
     except Exception as e:
-        print(f"Error processing URL {url}: {str(e)}")
-        print("Traceback:", traceback.format_exc())
+        logger.error(f"Error scraping {url}: {str(e)}")
+        logger.error(traceback.format_exc())
         return {
             'url': url,
             'error': str(e),
-            'business_name': url.replace('www.', '').split('/')[0]
+            'business_name': '',
+            'emails': [],
+            'phones': [],
+            'social_links': {},
+            'outreach_email': ''
         }
 
 @app.route('/scrape', methods=['POST'])
 def scrape():
     try:
-        print("Received scrape request")
-        data = request.json
-        print(f"Request data: {json.dumps(data, indent=2)}")
+        logger.info("Received scrape request")
+        data = request.get_json()
+        logger.debug(f"Request data: {json.dumps(data, indent=2)}")
         
         urls = data.get('urls', [])
         company_name = data.get('companyName', '')
         backlink_url = data.get('backlinkUrl', '')
-
-        if not isinstance(urls, list) or not urls:
-            print("Invalid input: urls must be a non-empty array")
-            return jsonify({'error': 'Invalid input: urls must be a non-empty array'}), 400
-
-        print(f"Processing {len(urls)} URLs")
         
+        logger.info(f"Processing request for {len(urls)} URLs")
+        logger.debug(f"Company Name: {company_name}")
+        logger.debug(f"Backlink URL: {backlink_url}")
+        
+        # Initialize scraper with OpenAI API key
+        openai_api_key = os.getenv('OPENAI_API_KEY')
+        if not openai_api_key:
+            logger.error("OpenAI API key not found")
+            return jsonify({"error": "OpenAI API key not configured"}), 500
+            
+        logger.info("Initializing WebScraper")
+        scraper = WebScraper(openai_api_key)
+        
+        # Use ThreadPoolExecutor for parallel processing
         results = []
-        
-        # Use ThreadPoolExecutor to handle multiple URLs concurrently with timeouts
         with ThreadPoolExecutor(max_workers=3) as executor:
-            # Submit all tasks
+            logger.info(f"Starting parallel processing with {len(urls)} URLs")
             future_to_url = {
-                executor.submit(
-                    scrape_single_url, 
-                    scraper, 
-                    url, 
-                    company_name, 
-                    backlink_url
-                ): url for url in urls
+                executor.submit(scrape_single_url, scraper, url, company_name, backlink_url): url 
+                for url in urls
             }
             
-            # Collect results as they complete
-            for future in as_completed(future_to_url, timeout=12):  # 12 second timeout
-                url = future_to_url[future]
+            for future in as_completed(future_to_url):
                 try:
                     result = future.result()
-                    if result:
-                        results.append(result)
-                        print(f"Added result for {url}")
-                except TimeoutError:
-                    error_result = {
-                        'url': url,
-                        'error': 'Processing timed out',
-                        'business_name': url.replace('www.', '').split('/')[0]
-                    }
-                    results.append(error_result)
-                    print(f"Timeout processing {url}")
+                    results.append(result)
+                    logger.info(f"Completed scraping URL: {result.get('url')}")
+                    logger.debug(f"Result: {json.dumps(result, indent=2)}")
                 except Exception as e:
-                    error_result = {
+                    url = future_to_url[future]
+                    logger.error(f"Error processing {url}: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    results.append({
                         'url': url,
                         'error': str(e),
-                        'business_name': url.replace('www.', '').split('/')[0]
-                    }
-                    results.append(error_result)
-                    print(f"Error processing {url}: {str(e)}")
-                    print("Traceback:", traceback.format_exc())
-
-        print(f"Completed processing. Returning {len(results)} results")
-        print(f"Results: {json.dumps(results, indent=2)}")
+                        'business_name': '',
+                        'emails': [],
+                        'phones': [],
+                        'social_links': {},
+                        'outreach_email': ''
+                    })
+        
+        logger.info(f"Completed all processing. Returning {len(results)} results")
+        logger.info(f"Results: {json.dumps(results, indent=2)}")
         return jsonify(results)
-
+        
     except Exception as e:
-        print(f"Server error: {str(e)}")
-        print("Traceback:", traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error in scrape endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    # Get port from environment variable or default to 5000
     port = int(os.environ.get('PORT', 5000))
-    
-    # In production, host on 0.0.0.0
     if os.environ.get('FLASK_ENV') == 'production':
         app.run(host='0.0.0.0', port=port)
     else:
