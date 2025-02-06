@@ -58,7 +58,7 @@ jobs:
       - name: Deploy to App Runner
         env:
           IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-          SERVICE_ROLE: "arn:aws:iam::585008047321:role/AppRunnerServiceRole"
+          SERVICE_ROLE: "arn:aws:iam::585008047321:role/AppRunnerAccessRole"
           INSTANCE_ROLE: "arn:aws:iam::585008047321:role/AppRunnerECRAccessRole"
           OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
