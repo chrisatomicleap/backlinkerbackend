@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: web-scraper-backend
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+    healthCheckPath: /health
+    buildCommand: docker build -t web-scraper-backend .
+    startCommand: docker run -p $PORT:5000 web-scraper-backend
