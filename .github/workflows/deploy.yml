@@ -53,58 +53,66 @@ jobs:
 
       - name: Deploy to App Runner
         run: |
-          # Check if service exists
-          SERVICE_ARN=$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='${{ env.APP_NAME }}'].ServiceArn" --output text)
-          
-          if [ -z "$SERVICE_ARN" ]; then
-            # Create new service
-            aws apprunner create-service --cli-input-json '{
-              "ServiceName": "${{ env.APP_NAME }}",
-              "SourceConfiguration": {
-                "AuthenticationConfiguration": {
-                  "AccessRoleArn": "${{ secrets.APPRUNNER_SERVICE_ROLE_ARN }}"
-                },
-                "ImageRepository": {
-                  "ImageIdentifier": "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}",
-                  "ImageRepositoryType": "ECR",
-                  "ImageConfiguration": {
-                    "Port": "5000",
-                    "RuntimeEnvironmentVariables": {
-                      "OPENAI_API_KEY": "${{ secrets.OPENAI_API_KEY }}"
-                    }
+          # Create JSON files for AWS CLI input
+          cat > create-service.json << EOF
+          {
+            "ServiceName": "${APP_NAME}",
+            "SourceConfiguration": {
+              "AuthenticationConfiguration": {
+                "AccessRoleArn": "${{ secrets.APPRUNNER_SERVICE_ROLE_ARN }}"
+              },
+              "ImageRepository": {
+                "ImageIdentifier": "${{ steps.login-ecr.outputs.registry }}/${ECR_REPOSITORY}:${{ github.sha }}",
+                "ImageRepositoryType": "ECR",
+                "ImageConfiguration": {
+                  "Port": "5000",
+                  "RuntimeEnvironmentVariables": {
+                    "OPENAI_API_KEY": "${{ secrets.OPENAI_API_KEY }}"
                   }
-                },
-                "AutoDeploymentsEnabled": true
+                }
               },
-              "InstanceConfiguration": {
-                "Cpu": "1 vCPU",
-                "Memory": "2 GB",
-                "InstanceRoleArn": "${{ secrets.APPRUNNER_SERVICE_ROLE_ARN }}"
-              },
-              "HealthCheckConfiguration": {
-                "Protocol": "HTTP",
-                "Path": "/health",
-                "Interval": 10,
-                "Timeout": 5,
-                "HealthyThreshold": 1,
-                "UnhealthyThreshold": 5
-              }
-            }'
-          else
-            # Update existing service
-            aws apprunner update-service --cli-input-json '{
-              "ServiceArn": "'"$SERVICE_ARN"'",
-              "SourceConfiguration": {
-                "ImageRepository": {
-                  "ImageIdentifier": "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}",
-                  "ImageRepositoryType": "ECR",
-                  "ImageConfiguration": {
-                    "Port": "5000",
-                    "RuntimeEnvironmentVariables": {
-                      "OPENAI_API_KEY": "${{ secrets.OPENAI_API_KEY }}"
-                    }
+              "AutoDeploymentsEnabled": true
+            },
+            "InstanceConfiguration": {
+              "Cpu": "1 vCPU",
+              "Memory": "2 GB",
+              "InstanceRoleArn": "${{ secrets.APPRUNNER_SERVICE_ROLE_ARN }}"
+            },
+            "HealthCheckConfiguration": {
+              "Protocol": "HTTP",
+              "Path": "/health",
+              "Interval": 10,
+              "Timeout": 5,
+              "HealthyThreshold": 1,
+              "UnhealthyThreshold": 5
+            }
+          }
+          EOF
+
+          cat > update-service.json << EOF
+          {
+            "SourceConfiguration": {
+              "ImageRepository": {
+                "ImageIdentifier": "${{ steps.login-ecr.outputs.registry }}/${ECR_REPOSITORY}:${{ github.sha }}",
+                "ImageRepositoryType": "ECR",
+                "ImageConfiguration": {
+                  "Port": "5000",
+                  "RuntimeEnvironmentVariables": {
+                    "OPENAI_API_KEY": "${{ secrets.OPENAI_API_KEY }}"
                   }
                 }
               }
-            }'
+            }
+          }
+          EOF
+
+          # Check if service exists
+          SERVICE_ARN=$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='${APP_NAME}'].ServiceArn" --output text)
+          
+          if [ -z "$SERVICE_ARN" ]; then
+            # Create new service
+            aws apprunner create-service --cli-input-json "$(cat create-service.json)"
+          else
+            # Update existing service
+            aws apprunner update-service --service-arn "$SERVICE_ARN" --cli-input-json "$(cat update-service.json)"
           fi
