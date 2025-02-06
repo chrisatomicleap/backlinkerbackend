@@ -9,7 +9,7 @@ import validators
 from tqdm import tqdm
 import os
 from dotenv import load_dotenv
-import openai
+from openai import OpenAI
 
 # Load environment variables
 load_dotenv()
@@ -22,14 +22,14 @@ class WebScraper:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
-        # Set OpenAI API key
+        # Initialize OpenAI client
         if openai_api_key:
-            openai.api_key = openai_api_key
+            self.openai_client = OpenAI(api_key=openai_api_key)
         else:
             api_key = os.getenv('OPENAI_API_KEY')
             if not api_key:
                 raise ValueError("OPENAI_API_KEY environment variable is not set")
-            openai.api_key = api_key
+            self.openai_client = OpenAI(api_key=api_key)
             
         # Reset any proxy settings that might be in the environment
         os.environ.pop('OPENAI_PROXY', None)
@@ -245,8 +245,8 @@ class WebScraper:
             if not business_name or not company_name or not backlink_url:
                 raise ValueError("Missing required parameters for email generation")
 
-            if not openai.api_key:
-                raise ValueError("OpenAI API key is not set")
+            if not self.openai_client:
+                raise ValueError("OpenAI client is not initialized")
 
             prompt = f"""
             Write a friendly and professional outreach email to {business_name}.
@@ -259,33 +259,34 @@ class WebScraper:
             """
 
             # Create completion without proxy settings
-            response = openai.ChatCompletion.create(
+            response = self.openai_client.Completion.create(
                 model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a professional outreach specialist writing an email to request a backlink."},
-                    {"role": "user", "content": prompt}
-                ],
+                prompt=prompt,
                 max_tokens=300,
                 temperature=0.7
             )
 
-            if not response.choices or not response.choices[0].message:
+            if not response.choices or not response.choices[0].text:
                 raise ValueError("No response from OpenAI API")
 
-            return response.choices[0].message['content'].strip()
+            return response.choices[0].text.strip()
 
-        except openai.error.AuthenticationError as e:
-            print(f"OpenAI Authentication Error: {str(e)}")
-            return "Error: OpenAI API key is invalid"
-        except openai.error.APIError as e:
-            print(f"OpenAI API Error: {str(e)}")
-            return "Error: OpenAI API is currently unavailable"
-        except ValueError as e:
-            print(f"Value Error: {str(e)}")
-            return f"Error: {str(e)}"
         except Exception as e:
-            print(f"Unexpected error generating email: {str(e)}")
-            return "Error: An unexpected error occurred while generating the email"
+            error_type = type(e).__name__
+            error_msg = str(e)
+            
+            if error_type == 'AuthenticationError':
+                print(f"OpenAI Authentication Error: {error_msg}")
+                return "Error: OpenAI API key is invalid"
+            elif error_type == 'APIError':
+                print(f"OpenAI API Error: {error_msg}")
+                return "Error: OpenAI API is currently unavailable"
+            elif error_type == 'ValueError':
+                print(f"Value Error: {error_msg}")
+                return f"Error: {error_msg}"
+            else:
+                print(f"Unexpected error generating email: {error_type} - {error_msg}")
+                return "Error: An unexpected error occurred while generating the email"
 
 def main():
     """Main function to test the scraper."""
