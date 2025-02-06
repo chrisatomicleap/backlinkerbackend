@@ -15,18 +15,22 @@ import openai
 load_dotenv()
 
 class WebScraper:
-    def __init__(self, delay: float = 2.0):
+    def __init__(self, openai_api_key: str = None, delay: float = 2.0):
         """Initialize the scraper with configurable delay between requests."""
         self.delay = delay
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
-        api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is not set")
         
-        # Configure OpenAI without proxy settings
-        openai.api_key = api_key
+        # Set OpenAI API key
+        if openai_api_key:
+            openai.api_key = openai_api_key
+        else:
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                raise ValueError("OPENAI_API_KEY environment variable is not set")
+            openai.api_key = api_key
+            
         # Reset any proxy settings that might be in the environment
         os.environ.pop('OPENAI_PROXY', None)
         os.environ.pop('OPENAI_HTTP_PROXY', None)
@@ -238,6 +242,12 @@ class WebScraper:
     def generate_outreach_email(self, business_name: str, company_name: str, backlink_url: str) -> str:
         """Generate an outreach email using OpenAI API."""
         try:
+            if not business_name or not company_name or not backlink_url:
+                raise ValueError("Missing required parameters for email generation")
+
+            if not openai.api_key:
+                raise ValueError("OpenAI API key is not set")
+
             prompt = f"""
             Write a friendly and professional outreach email to {business_name}.
             The email should:
@@ -259,11 +269,23 @@ class WebScraper:
                 temperature=0.7
             )
 
+            if not response.choices or not response.choices[0].message:
+                raise ValueError("No response from OpenAI API")
+
             return response.choices[0].message['content'].strip()
 
+        except openai.error.AuthenticationError as e:
+            print(f"OpenAI Authentication Error: {str(e)}")
+            return "Error: OpenAI API key is invalid"
+        except openai.error.APIError as e:
+            print(f"OpenAI API Error: {str(e)}")
+            return "Error: OpenAI API is currently unavailable"
+        except ValueError as e:
+            print(f"Value Error: {str(e)}")
+            return f"Error: {str(e)}"
         except Exception as e:
-            print(f"Error generating email: {str(e)}")
-            return "Error generating outreach email. Please try again later."
+            print(f"Unexpected error generating email: {str(e)}")
+            return "Error: An unexpected error occurred while generating the email"
 
 def main():
     """Main function to test the scraper."""
