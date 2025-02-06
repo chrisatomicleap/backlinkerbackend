@@ -14,15 +14,17 @@ RUN pip install -r requirements.txt
 
 # Copy the application code
 COPY . .
-COPY ../web_scraper.py .
 
 # Set environment variables
 ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
-ENV PORT=5000
 
-# Expose the port the app runs on
+# Install playwright browsers
+RUN playwright install chromium
+RUN playwright install-deps
+
+# Expose the port
 EXPOSE 5000
 
-# Command to run the application
-CMD ["python", "app.py"]
+# Run the application
+CMD ["python", "-m", "flask", "run", "--host=0.0.0.0"]
