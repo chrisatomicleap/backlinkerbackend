@@ -51,69 +51,82 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
       - name: Deploy to App Runner
         env:
           IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          APP_RUNNER_ROLE: ${{ secrets.APPRUNNER_SERVICE_ROLE_ARN }}
+          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           # Check if service exists
           SERVICE_ARN=$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='${APP_NAME}'].ServiceArn" --output text)
           
           if [ -z "$SERVICE_ARN" ]; then
-            # Prepare create service configuration
-            echo '{
-              "ServiceName": "'"${APP_NAME}"'",
-              "SourceConfiguration": {
-                "AuthenticationConfiguration": {
-                  "AccessRoleArn": "'"${{ secrets.APPRUNNER_SERVICE_ROLE_ARN }}"'"
-                },
-                "ImageRepository": {
-                  "ImageIdentifier": "'"${IMAGE_URI}"'",
-                  "ImageRepositoryType": "ECR",
-                  "ImageConfiguration": {
-                    "Port": "5000",
-                    "RuntimeEnvironmentVariables": {
-                      "OPENAI_API_KEY": "'"${{ secrets.OPENAI_API_KEY }}"'"
+            # Create new service configuration
+            jq -n \
+              --arg name "$APP_NAME" \
+              --arg role "$APP_RUNNER_ROLE" \
+              --arg image "$IMAGE_URI" \
+              --arg api_key "$OPENAI_KEY" \
+              '{
+                ServiceName: $name,
+                SourceConfiguration: {
+                  AuthenticationConfiguration: {
+                    AccessRoleArn: $role
+                  },
+                  ImageRepository: {
+                    ImageIdentifier: $image,
+                    ImageRepositoryType: "ECR",
+                    ImageConfiguration: {
+                      Port: "5000",
+                      RuntimeEnvironmentVariables: {
+                        OPENAI_API_KEY: $api_key
+                      }
                     }
-                  }
+                  },
+                  AutoDeploymentsEnabled: true
                 },
-                "AutoDeploymentsEnabled": true
-              },
-              "InstanceConfiguration": {
-                "Cpu": "1 vCPU",
-                "Memory": "2 GB",
-                "InstanceRoleArn": "'"${{ secrets.APPRUNNER_SERVICE_ROLE_ARN }}"'"
-              },
-              "HealthCheckConfiguration": {
-                "Protocol": "HTTP",
-                "Path": "/health",
-                "Interval": 10,
-                "Timeout": 5,
-                "HealthyThreshold": 1,
-                "UnhealthyThreshold": 5
-              }
-            }' > create-config.json
+                InstanceConfiguration: {
+                  Cpu: "1 vCPU",
+                  Memory: "2 GB",
+                  InstanceRoleArn: $role
+                },
+                HealthCheckConfiguration: {
+                  Protocol: "HTTP",
+                  Path: "/health",
+                  Interval: 10,
+                  Timeout: 5,
+                  HealthyThreshold: 1,
+                  UnhealthyThreshold: 5
+                }
+              }' > create-config.json
 
             # Create new service
             aws apprunner create-service --cli-input-json file://create-config.json
           else
-            # Prepare update service configuration
-            echo '{
-              "SourceConfiguration": {
-                "ImageRepository": {
-                  "ImageIdentifier": "'"${IMAGE_URI}"'",
-                  "ImageRepositoryType": "ECR",
-                  "ImageConfiguration": {
-                    "Port": "5000",
-                    "RuntimeEnvironmentVariables": {
-                      "OPENAI_API_KEY": "'"${{ secrets.OPENAI_API_KEY }}"'"
+            # Update service configuration
+            jq -n \
+              --arg image "$IMAGE_URI" \
+              --arg api_key "$OPENAI_KEY" \
+              '{
+                SourceConfiguration: {
+                  ImageRepository: {
+                    ImageIdentifier: $image,
+                    ImageRepositoryType: "ECR",
+                    ImageConfiguration: {
+                      Port: "5000",
+                      RuntimeEnvironmentVariables: {
+                        OPENAI_API_KEY: $api_key
+                      }
                     }
                   }
                 }
-              }
-            }' > update-config.json
+              }' > update-config.json
 
             # Update existing service
             aws apprunner update-service \
-              --service-arn "${SERVICE_ARN}" \
+              --service-arn "$SERVICE_ARN" \
               --cli-input-json file://update-config.json
           fi
