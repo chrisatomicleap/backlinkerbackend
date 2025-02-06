@@ -44,7 +44,6 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          cd backend
           docker build \
             --build-arg OPENAI_API_KEY=${OPENAI_API_KEY} \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
