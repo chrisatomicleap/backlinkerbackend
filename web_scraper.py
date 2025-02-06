@@ -31,9 +31,15 @@ class WebScraper:
         try:
             api_key = openai_api_key or os.getenv('OPENAI_API_KEY')
             if not api_key:
-                logger.error("OpenAI API key not found in environment")
+                logger.error("OpenAI API key not found")
                 raise ValueError("OPENAI_API_KEY environment variable is not set")
-            self.openai_client = OpenAI(api_key=api_key)
+            
+            logger.debug("Creating OpenAI client")
+            self.openai_client = OpenAI(
+                api_key=api_key,
+                timeout=30.0,  # 30 second timeout
+                max_retries=2  # Retry failed requests twice
+            )
             logger.info("OpenAI client initialized successfully")
         except Exception as e:
             logger.error(f"Error initializing OpenAI client: {str(e)}")
@@ -271,7 +277,7 @@ class WebScraper:
                 logger.error("Missing required parameters")
                 raise ValueError("Missing required parameters for email generation")
 
-            if not self.openai_client:
+            if not hasattr(self, 'openai_client'):
                 logger.error("OpenAI client not initialized")
                 raise ValueError("OpenAI client is not initialized")
 
@@ -288,6 +294,7 @@ class WebScraper:
 
             logger.info("Making API call to OpenAI")
             try:
+                logger.debug("Creating chat completion")
                 response = self.openai_client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=[
@@ -297,7 +304,7 @@ class WebScraper:
                     max_tokens=300,
                     temperature=0.7
                 )
-                logger.debug(f"OpenAI API response: {response}")
+                logger.debug(f"OpenAI API response received: {response}")
             except Exception as e:
                 logger.error(f"OpenAI API call failed: {str(e)}")
                 raise
@@ -321,6 +328,9 @@ class WebScraper:
             elif error_type == 'APIError':
                 logger.error(f"OpenAI API Error: {error_msg}")
                 return "Error: OpenAI API is currently unavailable"
+            elif error_type == 'RateLimitError':
+                logger.error(f"OpenAI Rate Limit Error: {error_msg}")
+                return "Error: OpenAI API rate limit exceeded"
             elif error_type == 'ValueError':
                 logger.error(f"Value Error: {error_msg}")
                 return f"Error: {error_msg}"
