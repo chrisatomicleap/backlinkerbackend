@@ -1,0 +1,90 @@
+name: Deploy to AWS App Runner
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REPOSITORY: web-scraper-backend
+  APP_NAME: web-scraper-backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Create ECR repository if not exists
+        run: |
+          aws ecr describe-repositories --repository-names ${ECR_REPOSITORY} || aws ecr create-repository --repository-name ${ECR_REPOSITORY}
+
+      - name: Build, tag, and push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          cd backend
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Deploy to App Runner
+        run: |
+          # Check if service exists
+          SERVICE_ARN=$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='${{ env.APP_NAME }}'].ServiceArn" --output text)
+          
+          if [ -z "$SERVICE_ARN" ]; then
+            # Create new service
+            aws apprunner create-service --cli-input-json '{
+              "ServiceName": "${{ env.APP_NAME }}",
+              "SourceConfiguration": {
+                "AuthenticationConfiguration": {
+                  "AccessRoleArn": "${{ secrets.APPRUNNER_SERVICE_ROLE_ARN }}"
+                },
+                "ImageRepository": {
+                  "ImageIdentifier": "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}",
+                  "ImageRepositoryType": "ECR"
+                },
+                "AutoDeploymentsEnabled": true
+              },
+              "InstanceConfiguration": {
+                "Cpu": "1 vCPU",
+                "Memory": "2 GB",
+                "InstanceRoleArn": "${{ secrets.APPRUNNER_SERVICE_ROLE_ARN }}"
+              },
+              "HealthCheckConfiguration": {
+                "Protocol": "HTTP",
+                "Path": "/health",
+                "Interval": 10,
+                "Timeout": 5,
+                "HealthyThreshold": 1,
+                "UnhealthyThreshold": 5
+              }
+            }'
+          else
+            # Update existing service
+            aws apprunner update-service --cli-input-json '{
+              "ServiceArn": "'"$SERVICE_ARN"'",
+              "SourceConfiguration": {
+                "ImageRepository": {
+                  "ImageIdentifier": "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}",
+                  "ImageRepositoryType": "ECR"
+                }
+              }
+            }'
+          fi

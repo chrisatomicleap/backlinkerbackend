@@ -7,3 +7,11 @@ env/
 venv/
 .env
 *.log
+.git
+.gitignore
+README.md
+*.md
+tests/
+.pytest_cache/
+.coverage
+htmlcov/

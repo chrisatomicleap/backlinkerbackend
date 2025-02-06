@@ -1,9 +1,7 @@
-flask==3.0.0
-flask-cors==4.0.0
 beautifulsoup4==4.12.2
+playwright==1.41.1
 requests==2.31.0
 python-dotenv==1.0.0
 validators==0.22.0
-openai==0.28.1
 tqdm==4.66.1
-gunicorn==21.2.0
+openai==1.12.0

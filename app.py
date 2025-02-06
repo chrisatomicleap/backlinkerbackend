@@ -7,8 +7,13 @@ from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 import time
 import traceback
+import logging
 
-# Load environment variables from parent directory
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
 dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
 load_dotenv(dotenv_path)
 
@@ -18,6 +23,17 @@ from web_scraper import WebScraper
 
 app = Flask(__name__)
 CORS(app)
+
+# Initialize WebScraper with OpenAI API key from environment
+openai_api_key = os.getenv('OPENAI_API_KEY')
+if not openai_api_key:
+    raise ValueError("OPENAI_API_KEY environment variable is required")
+
+scraper = WebScraper(openai_api_key)
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "healthy"}), 200
 
 def scrape_single_url(scraper, url, company_name, backlink_url):
     """Scrape a single URL with timeout handling."""
@@ -69,7 +85,7 @@ def scrape():
             return jsonify({'error': 'Invalid input: urls must be a non-empty array'}), 400
 
         print(f"Processing {len(urls)} URLs")
-        scraper = WebScraper()
+        
         results = []
         
         # Use ThreadPoolExecutor to handle multiple URLs concurrently with timeouts
