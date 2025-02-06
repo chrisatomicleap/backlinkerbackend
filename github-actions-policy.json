@@ -33,7 +33,8 @@
             "Action": "iam:PassRole",
             "Resource": [
                 "arn:aws:iam::585008047321:role/AppRunnerECRAccessRole",
-                "arn:aws:iam::585008047321:role/AppRunnerAccessRole"
+                "arn:aws:iam::585008047321:role/AppRunnerServiceRole",
+                "arn:aws:iam::585008047321:role/new-AppRunnerServiceRole"
             ]
         }
     ]
