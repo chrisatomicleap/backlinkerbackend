@@ -200,15 +200,27 @@ class WebScraper:
     def scrape_url(self, url: str) -> Dict:
         """Scrape a website for contact details using requests and BeautifulSoup."""
         try:
+            logger.info(f"Starting to scrape URL: {url}")
             # Validate URL
             if not validators.url(url):
+                logger.error(f"Invalid URL: {url}")
                 raise ValueError(f"Invalid URL: {url}")
 
             # Make the request with a shorter timeout
-            response = requests.get(url, headers=self.headers, timeout=10, proxies=None)
-            response.raise_for_status()
+            logger.debug(f"Making HTTP request to {url}")
+            try:
+                response = requests.get(
+                    url, 
+                    headers=self.headers, 
+                    timeout=10
+                )
+                response.raise_for_status()
+            except requests.RequestException as e:
+                logger.error(f"Request failed for {url}: {str(e)}")
+                raise
             
             # Parse the HTML
+            logger.debug("Parsing HTML response")
             soup = BeautifulSoup(response.text, 'html.parser')
             
             # Extract all text content
@@ -218,6 +230,7 @@ class WebScraper:
             base_url = response.url
             
             # Extract information
+            logger.debug("Extracting information from HTML")
             business_name = self.extract_business_name(soup, url)
             emails = self.extract_emails(text_content)
             phones = self.extract_phones(text_content)
@@ -231,6 +244,7 @@ class WebScraper:
                 'social_links': social_links,
                 'url': url
             }
+            logger.debug(f"Extracted data: {json.dumps(result, indent=2)}")
             
             # Add a shorter delay between requests
             time.sleep(1)
@@ -238,14 +252,14 @@ class WebScraper:
             return result
             
         except requests.Timeout:
-            print(f"Timeout while scraping {url}")
+            logger.error(f"Timeout while scraping {url}")
             return {
                 'url': url,
                 'error': 'Request timed out',
                 'business_name': urlparse(url).netloc.replace('www.', '')
             }
         except Exception as e:
-            print(f"Error scraping {url}: {str(e)}")
+            logger.error(f"Error scraping {url}: {str(e)}")
             return {
                 'url': url,
                 'error': str(e),
