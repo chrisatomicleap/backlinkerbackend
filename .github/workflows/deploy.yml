@@ -59,6 +59,7 @@ jobs:
         env:
           IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
           APP_RUNNER_ROLE: ${{ secrets.APPRUNNER_SERVICE_ROLE_ARN }}
+          INSTANCE_ROLE: "arn:aws:iam::585008047321:role/AppRunnerECRAccessRole"
           OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           # Check if service exists
@@ -69,6 +70,7 @@ jobs:
             jq -n \
               --arg name "$APP_NAME" \
               --arg role "$APP_RUNNER_ROLE" \
+              --arg instance_role "$INSTANCE_ROLE" \
               --arg image "$IMAGE_URI" \
               --arg api_key "${OPENAI_KEY//[$'\n']/}" \
               '{
@@ -92,7 +94,7 @@ jobs:
                 InstanceConfiguration: {
                   Cpu: "1 vCPU",
                   Memory: "2 GB",
-                  InstanceRoleArn: $role
+                  InstanceRoleArn: $instance_role
                 },
                 HealthCheckConfiguration: {
                   Protocol: "HTTP",
