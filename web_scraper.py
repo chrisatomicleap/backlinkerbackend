@@ -29,16 +29,11 @@ class WebScraper:
         
         # Initialize OpenAI client
         try:
-            if openai_api_key:
-                logger.debug("Using provided OpenAI API key")
-                self.openai_client = OpenAI(api_key=openai_api_key)
-            else:
-                logger.debug("Getting OpenAI API key from environment")
-                api_key = os.getenv('OPENAI_API_KEY')
-                if not api_key:
-                    logger.error("OpenAI API key not found in environment")
-                    raise ValueError("OPENAI_API_KEY environment variable is not set")
-                self.openai_client = OpenAI(api_key=api_key)
+            api_key = openai_api_key or os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                logger.error("OpenAI API key not found in environment")
+                raise ValueError("OPENAI_API_KEY environment variable is not set")
+            self.openai_client = OpenAI(api_key=api_key)
             logger.info("OpenAI client initialized successfully")
         except Exception as e:
             logger.error(f"Error initializing OpenAI client: {str(e)}")
@@ -148,7 +143,7 @@ class WebScraper:
                 pass
 
         # Look for address in text content
-        text = soup.get_text(' ', strip=True)
+        text = soup.get_text()
         for pattern in address_patterns:
             match = re.search(pattern, text, re.I)
             if match:
