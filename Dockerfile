@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy requirements first to leverage Docker cache
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# Copy the rest of the application
+COPY . .
+COPY ../.env .env
+COPY ../web_scraper.py web_scraper.py
+
+# Expose the port the app runs on
+EXPOSE 5000
+
+# Command to run the application
+CMD ["python", "app.py"]
