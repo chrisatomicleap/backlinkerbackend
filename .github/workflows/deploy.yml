@@ -10,6 +10,10 @@ env:
   ECR_REPOSITORY: web-scraper-backend
   APP_NAME: web-scraper-backend
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -19,15 +23,16 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          mask-password: true
 
       - name: Create ECR repository if not exists
         run: |
@@ -37,9 +42,13 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           cd backend
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker build \
+            --build-arg OPENAI_API_KEY=${OPENAI_API_KEY} \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
@@ -58,7 +67,13 @@ jobs:
                 },
                 "ImageRepository": {
                   "ImageIdentifier": "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}",
-                  "ImageRepositoryType": "ECR"
+                  "ImageRepositoryType": "ECR",
+                  "ImageConfiguration": {
+                    "Port": "5000",
+                    "RuntimeEnvironmentVariables": {
+                      "OPENAI_API_KEY": "${{ secrets.OPENAI_API_KEY }}"
+                    }
+                  }
                 },
                 "AutoDeploymentsEnabled": true
               },
@@ -83,7 +98,13 @@ jobs:
               "SourceConfiguration": {
                 "ImageRepository": {
                   "ImageIdentifier": "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}",
-                  "ImageRepositoryType": "ECR"
+                  "ImageRepositoryType": "ECR",
+                  "ImageConfiguration": {
+                    "Port": "5000",
+                    "RuntimeEnvironmentVariables": {
+                      "OPENAI_API_KEY": "${{ secrets.OPENAI_API_KEY }}"
+                    }
+                  }
                 }
               }
             }'
