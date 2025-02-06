@@ -1,0 +1,18 @@
+name: web-scraper
+services:
+  - name: web-scraper-backend
+    github:
+      branch: main
+      deploy_on_push: true
+      repo: chrisatomicleap/backlinkerbackend
+    dockerfile_path: Dockerfile
+    http_port: 5000
+    instance_count: 1
+    instance_size_slug: basic-xs
+    envs:
+      - key: OPENAI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+    health_check:
+      http_path: /health
+      port: 5000
