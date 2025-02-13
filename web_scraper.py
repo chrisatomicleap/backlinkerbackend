@@ -299,9 +299,12 @@ class WebScraper:
             logger.info("Making API call to OpenAI")
             try:
                 logger.debug("Creating chat completion")
-                response = openai.Completion.create(
-                    model="text-davinci-003",
-                    prompt=prompt,
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are a professional outreach specialist writing an email to request a backlink."},
+                        {"role": "user", "content": prompt}
+                    ],
                     max_tokens=300,
                     temperature=0.7
                 )
@@ -310,11 +313,11 @@ class WebScraper:
                 logger.error(f"OpenAI API call failed: {str(e)}")
                 raise
 
-            if not response.choices or not response.choices[0].text:
+            if not response.choices or not response.choices[0].message:
                 logger.error("No valid response from OpenAI")
                 raise ValueError("No response from OpenAI API")
 
-            email_content = response.choices[0].text.strip()
+            email_content = response.choices[0].message['content'].strip()
             logger.info("Successfully generated email")
             logger.debug(f"Generated email content: {email_content}")
             return email_content
@@ -322,6 +325,7 @@ class WebScraper:
         except Exception as e:
             error_type = type(e).__name__
             error_msg = str(e)
+            logger.error(f"Full error details - Type: {error_type}, Message: {error_msg}")
             
             if error_type == 'AuthenticationError':
                 logger.error(f"OpenAI Authentication Error: {error_msg}")
