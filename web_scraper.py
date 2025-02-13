@@ -9,7 +9,7 @@ import validators
 from tqdm import tqdm
 import os
 from dotenv import load_dotenv
-from openai import OpenAI
+import openai
 import logging
 
 # Configure logging
@@ -34,18 +34,19 @@ class WebScraper:
                 logger.error("OpenAI API key not found")
                 raise ValueError("OPENAI_API_KEY environment variable is not set")
             
-            logger.debug("Creating OpenAI client")
-            self.openai_client = OpenAI(api_key=api_key)
+            logger.debug("Setting OpenAI API key")
+            openai.api_key = api_key
+            
             # Test the client with a simple request
-            logger.debug("Testing OpenAI client")
-            test_response = self.openai_client.ChatCompletion.create(
+            logger.debug("Testing OpenAI API")
+            test_response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
                 messages=[{"role": "user", "content": "test"}],
                 max_tokens=5
             )
-            logger.info("OpenAI client initialized and tested successfully")
+            logger.info("OpenAI API initialized and tested successfully")
         except Exception as e:
-            logger.error(f"Error initializing OpenAI client: {str(e)}")
+            logger.error(f"Error initializing OpenAI API: {str(e)}")
             raise
 
         # Reset any proxy settings that might be in the environment
@@ -280,9 +281,9 @@ class WebScraper:
                 logger.error("Missing required parameters")
                 raise ValueError("Missing required parameters for email generation")
 
-            if not hasattr(self, 'openai_client'):
-                logger.error("OpenAI client not initialized")
-                raise ValueError("OpenAI client is not initialized")
+            if not hasattr(openai, 'api_key'):
+                logger.error("OpenAI API key not initialized")
+                raise ValueError("OpenAI API key is not initialized")
 
             prompt = f"""
             Write a friendly and professional outreach email to {business_name}.
@@ -298,12 +299,9 @@ class WebScraper:
             logger.info("Making API call to OpenAI")
             try:
                 logger.debug("Creating chat completion")
-                response = self.openai_client.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are a professional outreach specialist writing an email to request a backlink."},
-                        {"role": "user", "content": prompt}
-                    ],
+                response = openai.Completion.create(
+                    model="text-davinci-003",
+                    prompt=prompt,
                     max_tokens=300,
                     temperature=0.7
                 )
@@ -312,11 +310,11 @@ class WebScraper:
                 logger.error(f"OpenAI API call failed: {str(e)}")
                 raise
 
-            if not response.choices or not response.choices[0].message:
+            if not response.choices or not response.choices[0].text:
                 logger.error("No valid response from OpenAI")
                 raise ValueError("No response from OpenAI API")
 
-            email_content = response.choices[0].message['content'].strip()
+            email_content = response.choices[0].text.strip()
             logger.info("Successfully generated email")
             logger.debug(f"Generated email content: {email_content}")
             return email_content
