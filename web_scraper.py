@@ -35,12 +35,15 @@ class WebScraper:
                 raise ValueError("OPENAI_API_KEY environment variable is not set")
             
             logger.debug("Creating OpenAI client")
-            self.openai_client = OpenAI(
-                api_key=api_key,
-                timeout=30.0,  # 30 second timeout
-                max_retries=2  # Retry failed requests twice
+            self.openai_client = OpenAI(api_key=api_key)
+            # Test the client with a simple request
+            logger.debug("Testing OpenAI client")
+            test_response = self.openai_client.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": "test"}],
+                max_tokens=5
             )
-            logger.info("OpenAI client initialized successfully")
+            logger.info("OpenAI client initialized and tested successfully")
         except Exception as e:
             logger.error(f"Error initializing OpenAI client: {str(e)}")
             raise
@@ -295,7 +298,7 @@ class WebScraper:
             logger.info("Making API call to OpenAI")
             try:
                 logger.debug("Creating chat completion")
-                response = self.openai_client.chat.completions.create(
+                response = self.openai_client.ChatCompletion.create(
                     model="gpt-3.5-turbo",
                     messages=[
                         {"role": "system", "content": "You are a professional outreach specialist writing an email to request a backlink."},
@@ -313,7 +316,7 @@ class WebScraper:
                 logger.error("No valid response from OpenAI")
                 raise ValueError("No response from OpenAI API")
 
-            email_content = response.choices[0].message.content.strip()
+            email_content = response.choices[0].message['content'].strip()
             logger.info("Successfully generated email")
             logger.debug(f"Generated email content: {email_content}")
             return email_content
