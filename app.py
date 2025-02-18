@@ -1,155 +1,126 @@
+import os
+import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import json
-import sys
-import os
-from dotenv import load_dotenv
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
-import time
-import traceback
-import logging
 from web_scraper import WebScraper
+from concurrent.futures import ThreadPoolExecutor
+import traceback
 
-# Configure logging with more detail
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
-logger.info("Environment variables loaded")
-
 app = Flask(__name__)
-logger.info("Flask app initialized")
-
-# Configure CORS
-CORS(app, resources={
-    r"/*": {
-        "origins": ["https://backlinkoutreachtool.netlify.app"],
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type"]
-    }
-})
-logger.info("CORS configured")
-
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', 'https://backlinkoutreachtool.netlify.app')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-    return response
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    logger.debug("Health check endpoint called")
-    return jsonify({"status": "healthy"}), 200
-
-def scrape_single_url(scraper, url, company_name, backlink_url):
-    """Scrape a single URL with timeout handling."""
-    try:
-        logger.info(f"Starting to scrape URL: {url}")
-        result = scraper.scrape_url(url)
-        
-        # Add URL to result
-        result['url'] = url
-        logger.debug(f"Scraping result for {url}: {json.dumps(result, indent=2)}")
-        
-        # Generate outreach email
-        try:
-            logger.info(f"Generating outreach email for URL: {url}")
-            result['outreach_email'] = scraper.generate_outreach_email(
-                business_name=result.get('business_name', ''),
-                company_name=company_name,
-                backlink_url=backlink_url
-            )
-            logger.info(f"Generated outreach email for URL: {url}")
-            logger.debug(f"Email content: {result['outreach_email']}")
-        except Exception as e:
-            logger.error(f"Error generating outreach email for {url}: {str(e)}")
-            logger.error(traceback.format_exc())
-            result['outreach_email'] = f"Error generating email: {str(e)}"
-        
-        return result
-    except Exception as e:
-        logger.error(f"Error scraping {url}: {str(e)}")
-        logger.error(traceback.format_exc())
-        return {
-            'url': url,
-            'error': str(e),
-            'business_name': '',
-            'emails': [],
-            'phones': [],
-            'social_links': {},
-            'outreach_email': ''
-        }
+CORS(app)
 
 @app.route('/scrape', methods=['POST'])
 def scrape():
     try:
-        logger.info("Received scrape request")
         data = request.get_json()
-        logger.debug(f"Request data: {json.dumps(data, indent=2)}")
-        
         urls = data.get('urls', [])
         company_name = data.get('companyName', '')
         backlink_url = data.get('backlinkUrl', '')
+        openai_key = data.get('openaiKey', '')
+        user_name = data.get('userName', '')
+        user_organization = data.get('userOrganization', '')
+
+        logger.info("Received scrape request")
+        logger.debug(f"Request data: {data}")
         
+        if not urls:
+            logger.error("No URLs provided")
+            return jsonify({"error": "No URLs provided"}), 400
+            
+        if not company_name:
+            logger.error("No company name provided")
+            return jsonify({"error": "Company name is required"}), 400
+            
+        if not backlink_url:
+            logger.error("No backlink URL provided")
+            return jsonify({"error": "Backlink URL is required"}), 400
+            
+        if not openai_key:
+            logger.error("No OpenAI API key provided")
+            return jsonify({"error": "OpenAI API key is required"}), 400
+
+        if not user_name:
+            logger.error("No user name provided")
+            return jsonify({"error": "User name is required"}), 400
+
+        if not user_organization:
+            logger.error("No user organization provided")
+            return jsonify({"error": "User organization is required"}), 400
+
         logger.info(f"Processing request for {len(urls)} URLs")
         logger.debug(f"Company Name: {company_name}")
         logger.debug(f"Backlink URL: {backlink_url}")
-        
-        # Initialize scraper with OpenAI API key
-        openai_api_key = os.getenv('OPENAI_API_KEY')
-        if not openai_api_key:
-            logger.error("OpenAI API key not found")
-            return jsonify({"error": "OpenAI API key not configured"}), 500
-            
+
+        # Initialize the scraper with user's OpenAI key
         logger.info("Initializing WebScraper")
-        scraper = WebScraper(openai_api_key)
-        
-        # Use ThreadPoolExecutor for parallel processing
+        scraper = WebScraper(openai_key)
+
+        # Process URLs in parallel
         results = []
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            logger.info(f"Starting parallel processing with {len(urls)} URLs")
-            future_to_url = {
-                executor.submit(scrape_single_url, scraper, url, company_name, backlink_url): url 
-                for url in urls
-            }
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = []
+            for url in urls:
+                future = executor.submit(
+                    scrape_single_url,
+                    scraper,
+                    url,
+                    company_name,
+                    backlink_url,
+                    user_name,
+                    user_organization
+                )
+                futures.append(future)
             
-            for future in as_completed(future_to_url):
+            # Collect results as they complete
+            for future in futures:
                 try:
                     result = future.result()
                     results.append(result)
-                    logger.info(f"Completed scraping URL: {result.get('url')}")
-                    logger.debug(f"Result: {json.dumps(result, indent=2)}")
                 except Exception as e:
-                    url = future_to_url[future]
-                    logger.error(f"Error processing {url}: {str(e)}")
-                    logger.error(traceback.format_exc())
+                    logger.error(f"Error processing URL: {str(e)}")
                     results.append({
-                        'url': url,
-                        'error': str(e),
-                        'business_name': '',
-                        'emails': [],
-                        'phones': [],
-                        'social_links': {},
-                        'outreach_email': ''
+                        "error": str(e),
+                        "url": "Unknown URL"
                     })
-        
-        logger.info(f"Completed all processing. Returning {len(results)} results")
-        logger.info(f"Results: {json.dumps(results, indent=2)}")
+
         return jsonify(results)
-        
+
     except Exception as e:
         logger.error(f"Error in scrape endpoint: {str(e)}")
         logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
+def scrape_single_url(scraper, url, company_name, backlink_url, user_name, user_organization):
+    try:
+        logger.info(f"Starting to scrape URL: {url}")
+        result = scraper.scrape_url(url)
+        
+        if result.get('error'):
+            logger.error(f"Error scraping {url}: {result['error']}")
+            return result
+
+        logger.info(f"Generating outreach email for {url}")
+        email = scraper.generate_outreach_email(
+            result.get('business_name', ''),
+            company_name,
+            backlink_url,
+            user_name,
+            user_organization
+        )
+        
+        result['outreach_email'] = email
+        return result
+
+    except Exception as e:
+        logger.error(f"Error processing {url}: {str(e)}")
+        return {
+            "url": url,
+            "error": str(e)
+        }
+
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    if os.environ.get('FLASK_ENV') == 'production':
-        app.run(host='0.0.0.0', port=port)
-    else:
-        app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=5000)

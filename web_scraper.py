@@ -8,15 +8,11 @@ from urllib.parse import urljoin, urlparse
 import validators
 from tqdm import tqdm
 import os
-from dotenv import load_dotenv
 import openai
 import logging
 
 # Configure logging
 logger = logging.getLogger(__name__)
-
-# Load environment variables
-load_dotenv()
 
 class WebScraper:
     def __init__(self, openai_api_key: str = None, delay: float = 2.0):
@@ -29,13 +25,12 @@ class WebScraper:
         
         # Initialize OpenAI client
         try:
-            api_key = openai_api_key or os.getenv('OPENAI_API_KEY')
-            if not api_key:
-                logger.error("OpenAI API key not found")
-                raise ValueError("OPENAI_API_KEY environment variable is not set")
+            if not openai_api_key:
+                logger.error("OpenAI API key not provided")
+                raise ValueError("OpenAI API key is required")
             
             logger.debug("Setting OpenAI API key")
-            openai.api_key = api_key
+            openai.api_key = openai_api_key
             
             # Test the client with a simple request
             logger.debug("Testing OpenAI API")
@@ -48,11 +43,6 @@ class WebScraper:
         except Exception as e:
             logger.error(f"Error initializing OpenAI API: {str(e)}")
             raise
-
-        # Reset any proxy settings that might be in the environment
-        os.environ.pop('OPENAI_PROXY', None)
-        os.environ.pop('OPENAI_HTTP_PROXY', None)
-        os.environ.pop('OPENAI_HTTPS_PROXY', None)
         
         # Company and backlink information
         self.company_name = "Tanglewood Care Homes"
@@ -153,7 +143,7 @@ class WebScraper:
                 pass
 
         # Look for address in text content
-        text = soup.get_text()
+        text = soup.get_text(' ', strip=True)
         for pattern in address_patterns:
             match = re.search(pattern, text, re.I)
             if match:
@@ -205,27 +195,15 @@ class WebScraper:
     def scrape_url(self, url: str) -> Dict:
         """Scrape a website for contact details using requests and BeautifulSoup."""
         try:
-            logger.info(f"Starting to scrape URL: {url}")
             # Validate URL
             if not validators.url(url):
-                logger.error(f"Invalid URL: {url}")
                 raise ValueError(f"Invalid URL: {url}")
 
             # Make the request with a shorter timeout
-            logger.debug(f"Making HTTP request to {url}")
-            try:
-                response = requests.get(
-                    url, 
-                    headers=self.headers, 
-                    timeout=10
-                )
-                response.raise_for_status()
-            except requests.RequestException as e:
-                logger.error(f"Request failed for {url}: {str(e)}")
-                raise
+            response = requests.get(url, headers=self.headers, timeout=10, proxies=None)
+            response.raise_for_status()
             
             # Parse the HTML
-            logger.debug("Parsing HTML response")
             soup = BeautifulSoup(response.text, 'html.parser')
             
             # Extract all text content
@@ -235,7 +213,6 @@ class WebScraper:
             base_url = response.url
             
             # Extract information
-            logger.debug("Extracting information from HTML")
             business_name = self.extract_business_name(soup, url)
             emails = self.extract_emails(text_content)
             phones = self.extract_phones(text_content)
@@ -249,7 +226,6 @@ class WebScraper:
                 'social_links': social_links,
                 'url': url
             }
-            logger.debug(f"Extracted data: {json.dumps(result, indent=2)}")
             
             # Add a shorter delay between requests
             time.sleep(1)
@@ -257,95 +233,60 @@ class WebScraper:
             return result
             
         except requests.Timeout:
-            logger.error(f"Timeout while scraping {url}")
+            print(f"Timeout while scraping {url}")
             return {
                 'url': url,
                 'error': 'Request timed out',
                 'business_name': urlparse(url).netloc.replace('www.', '')
             }
         except Exception as e:
-            logger.error(f"Error scraping {url}: {str(e)}")
+            print(f"Error scraping {url}: {str(e)}")
             return {
                 'url': url,
                 'error': str(e),
                 'business_name': urlparse(url).netloc.replace('www.', '')
             }
 
-    def generate_outreach_email(self, business_name: str, company_name: str, backlink_url: str) -> str:
-        """Generate an outreach email using OpenAI API."""
+    def generate_outreach_email(self, business_name: str, company_name: str, backlink_url: str, user_name: str, user_organization: str) -> str:
+        """Generate an outreach email using OpenAI's GPT model."""
         try:
-            logger.info(f"Generating outreach email for business: {business_name}")
-            logger.debug(f"Parameters - Company: {company_name}, Backlink: {backlink_url}")
-
-            if not business_name or not company_name or not backlink_url:
-                logger.error("Missing required parameters")
-                raise ValueError("Missing required parameters for email generation")
-
-            if not hasattr(openai, 'api_key'):
-                logger.error("OpenAI API key not initialized")
-                raise ValueError("OpenAI API key is not initialized")
-
-            prompt = f"""
-            Write a friendly and professional outreach email to {business_name}.
+            prompt = f"""Generate a friendly and professional outreach email to {business_name} requesting a backlink.
             The email should:
-            1. Introduce {company_name}
-            2. Request to add our backlink ({backlink_url})
-            3. Explain the mutual benefits
-            4. Keep it concise and natural
-            5. End with a clear call to action
-            """
-            logger.debug(f"Generated prompt: {prompt}")
+            1. Be concise and professional
+            2. Mention that we found their website and explain why we're reaching out
+            3. Ask them to add a link to our article: {backlink_url}
+            4. Explain that this will be beneficial for both parties
+            5. Thank them for their time
+            6. Include a professional signature
 
-            logger.info("Making API call to OpenAI")
-            try:
-                logger.debug("Creating chat completion")
-                response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are a professional outreach specialist writing an email to request a backlink."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    max_tokens=300,
-                    temperature=0.7
-                )
-                logger.debug(f"OpenAI API response received: {response}")
-            except Exception as e:
-                logger.error(f"OpenAI API call failed: {str(e)}")
-                raise
+            Use this format:
+            Subject: Quick question about adding a link to your website
 
-            if not response.choices or not response.choices[0].message:
-                logger.error("No valid response from OpenAI")
-                raise ValueError("No response from OpenAI API")
+            [Email Body]
 
-            email_content = response.choices[0].message['content'].strip()
-            logger.info("Successfully generated email")
-            logger.debug(f"Generated email content: {email_content}")
-            return email_content
+            Best regards,
+            {user_name}
+            {user_organization}"""
 
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a professional outreach specialist writing an email to request a backlink."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=500
+            )
+
+            return response.choices[0].message['content'].strip()
         except Exception as e:
-            error_type = type(e).__name__
-            error_msg = str(e)
-            logger.error(f"Full error details - Type: {error_type}, Message: {error_msg}")
-            
-            if error_type == 'AuthenticationError':
-                logger.error(f"OpenAI Authentication Error: {error_msg}")
-                return "Error: OpenAI API key is invalid"
-            elif error_type == 'APIError':
-                logger.error(f"OpenAI API Error: {error_msg}")
-                return "Error: OpenAI API is currently unavailable"
-            elif error_type == 'RateLimitError':
-                logger.error(f"OpenAI Rate Limit Error: {error_msg}")
-                return "Error: OpenAI API rate limit exceeded"
-            elif error_type == 'ValueError':
-                logger.error(f"Value Error: {error_msg}")
-                return f"Error: {error_msg}"
-            else:
-                logger.error(f"Unexpected error: {error_type} - {error_msg}")
-                return "Error: An unexpected error occurred while generating the email"
+            logger.error(f"Error generating outreach email: {str(e)}")
+            raise
 
 def main():
     """Main function to test the scraper."""
-    scraper = WebScraper()
+    openai_api_key = "YOUR_OPENAI_API_KEY"  # Replace with your OpenAI API key
+    scraper = WebScraper(openai_api_key)
     
     # Test URLs
     test_urls = [
